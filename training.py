@@ -1,12 +1,15 @@
 import lightning as pl
 import torch
 
+
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import TensorBoardLogger
+from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from dataset import FER2013Dataset
 from models.resnet50 import ResNet50
+from models.vgg13 import VGG13
 
 from sklearn.metrics import (
     accuracy_score,
@@ -22,80 +25,135 @@ class FERModel(pl.LightningModule):
         self,
         learning_rate=1e-3,
         model: torch.nn.Module = None,
-        loss: torch.nn = None,
+        loss_fn: torch.nn = None,
     ):
         super().__init__()
         self.model = model
         self.learning_rate = learning_rate
-        self.loss = loss
-
-        self.test_step_outputs = []
+        self.loss_fn = loss_fn
 
     def forward(self, x):
         return self.model(x)
 
+    def compute_accuracy(self, outputs, targets):
+        _, preds = torch.max(outputs, dim=1)
+        corrects = torch.sum(preds == targets).item()
+        return corrects / len(targets)
+
+    def on_train_epoch_start(self):
+        # Reset accumulators at the start of each epoch
+        self.train_loss_accum = 0.0
+        self.train_accuracy_accum = 0.0
+        self.train_steps = 0
+
     def training_step(self, batch, batch_idx):
         images, targets = batch
         outputs = self(images)
-        loss = self.loss(outputs, targets)
-        self.log(
-            "train_loss",
-            loss,
-            on_step=True,
-            on_epoch=True,
-            prog_bar=True,
-            logger=True,
-        )
+        loss = self.loss_fn(outputs, targets)
+        accuracy = self.compute_accuracy(outputs, targets)
+
+        # Update accumulators
+        self.train_loss_accum += loss.item() * len(targets)
+        self.train_accuracy_accum += accuracy * len(targets)
+        self.train_steps += len(targets)
+
+        # Calculate running averages
+        running_loss = self.train_loss_accum / self.train_steps
+        running_accuracy = self.train_accuracy_accum / self.train_steps
+
+        # Log running averages
+        self.log("train_loss", running_loss, on_step=True, prog_bar=True)
+        self.log("train_accuracy", running_accuracy, on_step=True, prog_bar=True)
+
         return loss
+
+    def on_validation_epoch_start(self):
+        # Reset accumulators at the start of each validation epoch
+        self.val_loss_accum = 0.0
+        self.val_accuracy_accum = 0.0
+        self.val_steps = 0
 
     def validation_step(self, batch, batch_idx):
         images, targets = batch
         outputs = self(images)
-        loss = self.loss(outputs, targets)
-        self.log(
-            "val_loss",
-            loss,
-            on_step=True,
-            on_epoch=True,
-            prog_bar=True,
-            logger=True,
-        )
+        loss = self.loss_fn(outputs, targets)
+        accuracy = self.compute_accuracy(outputs, targets)
+
+        # Update accumulators
+        self.val_loss_accum += loss.item() * len(targets)
+        self.val_accuracy_accum += accuracy * len(targets)
+        self.val_steps += len(targets)
+
+        # Calculate running averages
+        running_loss = self.val_loss_accum / self.val_steps
+        running_accuracy = self.val_accuracy_accum / self.val_steps
+
+        # Log running averages
+        self.log("val_loss", running_loss, on_step=True, prog_bar=True)
+        self.log("val_accuracy", running_accuracy, on_step=True, prog_bar=True)
+
+        return loss
 
     def test_step(self, batch, batch_idx):
         images, targets = batch
-        outputs = self.model(images)
-        # Convert soft labels to predicted top1 index
-        _, preds = torch.max(outputs, dim=1)
-        loss = self.loss(outputs, targets)
-        targets = targets.argmax(1)
+        outputs = self(images)
+        loss = self.loss_fn(outputs, targets)
 
-        # Calculate metrics
-        acc = accuracy_score(targets.cpu(), preds.cpu())
-        precision, recall, f1, _ = precision_recall_fscore_support(
-            targets.cpu(), preds.cpu(), average="weighted"
+        # For accuracy, ensure targets are in the correct form if necessary
+        _, preds = torch.max(outputs, dim=1)
+        targets_argmax = targets.argmax(dim=1) if targets.dim() > 1 else targets
+        acc = accuracy_score(targets_argmax.cpu(), preds.cpu())
+
+        # Log the loss multiplied by the batch size
+        self.log(
+            "test_running_loss",
+            loss.item() * len(targets),
+            on_epoch=True,
+            prog_bar=True,
         )
 
-        self.log("test_loss", loss, on_epoch=True, prog_bar=True)
+        # Log accuracy
         self.log("test_acc", acc, on_epoch=True, prog_bar=True)
+
+        # Precision, recall, F1, as before
+        precision, recall, f1, _ = precision_recall_fscore_support(
+            targets_argmax.cpu(), preds.cpu(), average="weighted"
+        )
         self.log("test_precision", precision, on_epoch=True, prog_bar=True)
         self.log("test_recall", recall, on_epoch=True, prog_bar=True)
         self.log("test_f1", f1, on_epoch=True, prog_bar=True)
 
-        # Store preds and targets to calculate confusion matrix later
-        self.test_step_outputs.append({"preds": preds, "targets": targets})
+        # For confusion matrix calculation later
+        self.test_step_outputs.append({"preds": preds, "targets": targets_argmax})
 
     def on_test_epoch_end(self):
-        # Aggregate predictions and targets from all batches
+        # Aggregate predictions and targets from all test batches
         all_preds = torch.cat([x["preds"] for x in self.test_step_outputs], dim=0)
         all_targets = torch.cat([x["targets"] for x in self.test_step_outputs], dim=0)
 
         # Calculate and log confusion matrix
         conf_matrix = confusion_matrix(all_targets.cpu(), all_preds.cpu())
-        plotConfusionMatrix(conf_matrix)
+        self.logger.experiment.add_figure(
+            "Confusion Matrix", plotConfusionMatrix(conf_matrix), self.current_epoch
+        )
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
-        return optimizer
+        optimizer = torch.optim.Adam(
+            filter(lambda p: p.requires_grad, self.model.parameters()),
+            lr=self.learning_rate,
+        )
+        # T_0 is the number of iterations for the first restart, T_mult is the multiplier for each subsequent cycle (optional)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+            optimizer, T_0=10, T_mult=1
+        )
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "interval": "epoch",  # or "step" for step-wise updates
+                "frequency": 1,
+            },
+        }
 
 
 class FER_DataModule(pl.LightningDataModule):
@@ -139,6 +197,8 @@ class FER_DataModule(pl.LightningDataModule):
             self.train_dataset,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
+            shuffle=True,
+            persistent_workers=True,
         )
 
     def val_dataloader(self):
@@ -146,6 +206,8 @@ class FER_DataModule(pl.LightningDataModule):
             self.val_dataset,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
+            shuffle=False,
+            persistent_workers=True,
         )
 
     def test_dataloader(self):
@@ -153,6 +215,7 @@ class FER_DataModule(pl.LightningDataModule):
             self.test_dataset,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
+            shuffle=False,
         )
 
 
@@ -160,32 +223,15 @@ def main():
 
     train_transform = transforms.Compose(
         [
-            # Converts B&W images to 3-channel images
-            transforms.Grayscale(num_output_channels=3),
-            # Resizes the image slightly larger than the final size
-            transforms.Resize((256, 256)),
-            # Randomly crops the image
-            transforms.RandomResizedCrop(224),
-            # Randomly flips the image horizontally
-            transforms.RandomHorizontalFlip(),
-            # Randomly rotates the image to a max of 10 degrees
-            transforms.RandomRotation(10),
-            # Random perspective transformation
-            transforms.RandomPerspective(distortion_scale=0.2, p=0.5),
-            # Random color jitter
-            transforms.ColorJitter(
-                brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1
-            ),
-            # Converts the image to a tensor
+            transforms.RandomAffine(degrees=10),
+            transforms.Resize(224),
             transforms.ToTensor(),
-            # Normalizes with ImageNet's values
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
         ]
     )
+
     val_transform = transforms.Compose(
         [
-            # Converts B&W images to 3-channel images
-            transforms.Grayscale(num_output_channels=3),
             # Resizes the image to the expected input size
             transforms.Resize((224, 224)),
             # Converts the image to a tensor
@@ -194,18 +240,22 @@ def main():
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ]
     )
-    # Initialize the model
+
+    ce_weights = torch.tensor(
+        [0.01638, 0.02256, 0.04745, 0.04777, 0.06866, 0.25797, 0.87179, 1.0]
+    )
+    ce_weights = ce_weights.to("mps")
     model = FERModel(
-        model=ResNet50(num_classes=10, freeze=True),
+        model=ResNet50(num_classes=8),
         learning_rate=1e-4,
-        loss=torch.nn.CrossEntropyLoss(),
+        loss_fn=torch.nn.CrossEntropyLoss(ce_weights),
     )
 
     # Initialize the data module
     data_module = FER_DataModule(
         data_dir="/Users/alessandro/datasets/fer2013",
         batch_size=32,
-        num_workers=6,
+        num_workers=4,
         train_transform=train_transform,
         val_transform=val_transform,
     )
@@ -226,13 +276,13 @@ def main():
     # Initialize a trainer
     trainer = pl.Trainer(
         accelerator="auto",
-        max_epochs=100,
+        max_epochs=40,
         callbacks=[checkpoint_callback, plot_samples_callback],
         logger=TensorBoardLogger("lightning_logs"),
     )
 
     # Train the model
-    # trainer.fit(model, data_module)
+    trainer.fit(model, data_module)
     trainer.test(model, data_module)
 
 

@@ -15,43 +15,40 @@ class ResNet50(nn.Module):
     def __init__(
         self,
         num_classes=10,
-        freeze=True,
+        train_last_n_layers=0,
         weights=ResNet50_Weights.DEFAULT,
     ) -> None:
         super().__init__()
-
+        assert train_last_n_layers >= 0, "Must be 0 or higher"
         # Load the pre-trained ResNet50 model
         resnet50 = models.resnet50(weights=weights)
 
-        # Optionally freeze the pretrained layers
-        if freeze:
-            for param in resnet50.parameters():
-                param.requires_grad = False
+        # Freeze all layers in the network
+        for param in resnet50.parameters():
+            param.requires_grad = False
 
-        # Remove the last fully connected layer and the average pooling layer
-        features = list(resnet50.children())[:-1]
-        features = nn.Sequential(*features)
+        # If you want to unfreeze layers, e.g., unfreeze the last convolution block
+        for param in resnet50.layer4[-1].parameters():
+            param.requires_grad = True
 
         # The fully connected layer
-        fcl = nn.Linear(2048, num_classes)
-
-        self.resnet50 = nn.Sequential(
-            features,
-            nn.Flatten(start_dim=1),
-            fcl,
-            # nn.Softmax(dim=1),
+        resnet50.fc = nn.Sequential(
+            nn.Dropout(0.25),
+            nn.Linear(2048, num_classes),
         )
 
-        logger.info(f"Model has {count_parameters(self.resnet50)} parameters.")
+        self.model = resnet50
+
+        logger.info(f"Model has {count_parameters(self.model)} trainable parameters.")
 
     def forward(self, x):
-        return self.resnet50(x)
+        return self.model(x)
 
 
 if __name__ == "__main__":
     import torch
 
     x = torch.rand(4, 3, 224, 224)
-    model = ResNet50(num_classes=10, freeze=True)
+    model = ResNet50(num_classes=10)
     out = model(x)
     assert list(out.shape) == [4, 10]

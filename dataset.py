@@ -1,5 +1,6 @@
 import os
 
+import numpy as np
 import pandas as pd
 from PIL import Image
 import torch
@@ -32,22 +33,46 @@ class FER2013Dataset(Dataset):
         self.frame = pd.read_csv(os.path.join(self.root_dir, "label.csv"))
         self.transform = transform
 
+        # as https://github.com/borarak/emotion-recognition-vgg13/blob/master/trainer.py#L43
+        # discarding the last to labels "UNKNOWN" and "NF" at idx 11 and 12
+        self.frame["hard_label"] = self.frame.iloc[:, 2:10].apply(
+            lambda x: np.argmax(x.values), axis=1
+        )
+
     def __len__(self):
         return len(self.frame)
 
+    def get_weights(self):
+        class_counts = self.frame["hard_label"].value_counts()
+        # class_counts = class_counts[:-1]
+        total_samples = len(self.frame["hard_label"])
+        num_classes = len(class_counts)
+
+        # Calculate weight for each class
+        weights = total_samples / (class_counts * num_classes)
+        max_weight = weights.max()
+        weights = weights / max_weight
+        weights = np.round(weights, 5)
+        weights = weights.to_list()
+
+        return weights
+
     def __getitem__(self, idx):
-        if isinstance(idx, slice):
-            # Handling slicing
-            raise NotImplementedError("Slicing is not implemented")
 
         img_name = os.path.join(self.root_dir, self.frame.iloc[idx, 0])
-        image = Image.open(img_name)
-        label = torch.tensor(self.frame.iloc[idx, 2:], dtype=torch.float32)
-        label = label / torch.sum(label)
+
+        # soft labels
+        # soft_labels = self.frame.iloc[idx, 2:]
+        # label = label / torch.sum(label)
+
+        image = Image.open(img_name).convert("RGB")
+        hard_label = self.frame.iloc[idx, -1]
+        hard_label = torch.tensor(hard_label, dtype=torch.long)
+
         if self.transform:
             image = self.transform(image)
 
-        return image, label
+        return image, hard_label
 
 
 # Example usage
@@ -66,3 +91,13 @@ if __name__ == "__main__":
         stage="train",
         transform=transform,
     )
+
+if __name__ == "__main__":
+
+    ce_weights = FER2013Dataset(
+        root_dir="/Users/alessandro/datasets/fer2013",
+        stage="train",
+        transform=None,
+    ).get_weights()
+
+    print(ce_weights)

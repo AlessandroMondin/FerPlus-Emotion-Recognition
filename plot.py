@@ -57,12 +57,11 @@ class PlotValidationImagesCallback(Callback):
         # Select four images for plotting
         images, preds, targets = images[:4], outputs[:4], targets[:4]
         _, pred_ids = torch.topk(input=preds, k=2, dim=1)
-        _, target_ids = torch.topk(input=targets, k=2, dim=1)
 
         # Assuming we want to plot and save the first 4 images individually
         for i in range(images.shape[0]):
             self.plot_and_save_image(
-                images[i], pred_ids[i], target_ids[i], pl_module, epoch_path, i
+                images[i], pred_ids[i], targets[i], pl_module, epoch_path, i
             )
 
     def plot_and_save_image(
@@ -77,10 +76,8 @@ class PlotValidationImagesCallback(Callback):
 
         ax.imshow(img)
         pred0, pred1 = [self.labels[idx] for idx in pred.tolist()]
-        actual0, actual1 = [self.labels[idx] for idx in target.tolist()]
-        title = (
-            f"Predictions: 1: {pred0}, 2: {pred1}\n Labels: 1: {actual0}, 2: {actual1}"
-        )
+        actual0 = self.labels[target.item()]
+        title = f"Top 2 predicted classes: 1: {pred0}, 2: {pred1}\n Label: {actual0}"
         ax.set_title(title, color="red")
         ax.axis("off")
 
