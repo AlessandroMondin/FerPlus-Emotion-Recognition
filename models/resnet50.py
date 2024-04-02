@@ -28,7 +28,7 @@ class ResNet50(nn.Module):
             param.requires_grad = False
 
         # If you want to unfreeze layers, e.g., unfreeze the last convolution block
-        for param in resnet50.layer4[-1].parameters():
+        for param in resnet50.layer4[-2:].parameters():
             param.requires_grad = True
 
         # The fully connected layer
@@ -39,7 +39,7 @@ class ResNet50(nn.Module):
 
         self.model = resnet50
 
-        logger.info(f"Model has {count_parameters(self.model)} trainable parameters.")
+        # logger.info(f"Model has {count_parameters(self.model)} trainable parameters.")
 
     def forward(self, x):
         return self.model(x)
