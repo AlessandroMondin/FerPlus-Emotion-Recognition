@@ -43,3 +43,7 @@ fer2013
 At this point, in order to start training a model you need to specify the training configurations in `config.py` and eventually add a your custom models under the `models` folder. Bear in mind, if you add custom models, you'll need to inport them in `train.py`.
 
 Once you have specified these two configurations you can launch training by running `python train.py`
+
+In order to perform inference with a trained RESNET50 you can run, 2 checkpoints can be found in this [drive](https://drive.google.com/drive/folders/1zRrVlN8T9EeQ534wAAazPixs6Xn5k5Kd?usp=drive_link):
+
+        python inference.py --path_to_weights --path_to_image
