@@ -36,7 +36,7 @@ def main():
         batch_size=BATCH_SIZE,
         num_workers=NUM_WORKERS,
         train_transform=TRAIN_TRANSFORM,
-        val_transform=TRAIN_TRANSFORM,
+        val_transform=VAL_TRANSFORM,
     )
 
     # Callback to print 4 images after each epoch to understand visually inspect training
