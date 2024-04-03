@@ -42,7 +42,7 @@ def main():
     # Callback to print 4 images after each epoch to understand visually inspect training
     plot_samples_callback = PlotValidationImagesCallback(
         path="plot_val",
-        dataset_path="/Users/alessandro/datasets/fer2013",
+        dataset_path=PATH_TO_FERP_DATASET,
         val_transform=VAL_TRANSFORM,
     )
 
