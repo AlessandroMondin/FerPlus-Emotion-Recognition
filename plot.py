@@ -6,13 +6,19 @@ import torch
 
 from lightning.pytorch.callbacks import Callback
 from torch.utils.data import DataLoader
-from dataset import FER2013Dataset
+from datasets.ferplus import FER2013Dataset
 
 
 class PlotValidationImagesCallback(Callback):
+    """
+    Plots images with both predicted and ground truth labels in the specified directory.
+    Mostly used for debugging / inspect visually the training process.
+
+    """
+
     def __init__(
         self,
-        path="/mnt/data/validation_images",
+        path: str = None,
         dataset_path="",
         val_transform=None,
         labels=[
@@ -24,8 +30,6 @@ class PlotValidationImagesCallback(Callback):
             "disgust",
             "fear",
             "contempt",
-            "unknown",
-            "NF",
         ],
     ):
         super().__init__()
@@ -98,8 +102,6 @@ def plotConfusionMatrix(
         "disgust",
         "fear",
         "contempt",
-        "unknown",
-        "NF",
     ],
 ):
     """

@@ -1,12 +1,8 @@
-# used to import ssl certificate
 import ssl
 
 import torch.nn as nn
 import torchvision.models as models
 from torchvision.models.resnet import ResNet50_Weights
-
-
-from .utils import count_parameters, logger
 
 ssl._create_default_https_context = ssl._create_stdlib_context
 
@@ -27,8 +23,8 @@ class ResNet50(nn.Module):
         for param in resnet50.parameters():
             param.requires_grad = False
 
-        # If you want to unfreeze layers, e.g., unfreeze the last convolution block
-        for param in resnet50.layer4[-2:].parameters():
+        # Unfreeze layers, e.g., unfreeze the last convolution block
+        for param in resnet50.layer4[-3:].parameters():
             param.requires_grad = True
 
         # The fully connected layer
@@ -38,8 +34,6 @@ class ResNet50(nn.Module):
         )
 
         self.model = resnet50
-
-        # logger.info(f"Model has {count_parameters(self.model)} trainable parameters.")
 
     def forward(self, x):
         return self.model(x)

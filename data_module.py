@@ -1,8 +1,8 @@
 import lightning as pl
 
 from torch.utils.data import DataLoader
-from config import PATH_TO_FERP_DATASET
-from dataset import FER2013Dataset
+
+from datasets.ferplus import FER2013Dataset
 
 
 class FER_DataModule(pl.LightningDataModule):
@@ -24,19 +24,19 @@ class FER_DataModule(pl.LightningDataModule):
     def setup(self, stage=None):
         if stage == "fit" or stage is None:
             self.train_dataset = FER2013Dataset(
-                root_dir=PATH_TO_FERP_DATASET,
+                root_dir=self.data_dir,
                 stage="train",
                 transform=self.train_transform,
             )
             self.val_dataset = FER2013Dataset(
-                root_dir=PATH_TO_FERP_DATASET,
+                root_dir=self.data_dir,
                 stage="val",
                 transform=self.val_transform,
             )
 
         if stage == "test" or stage is None:
             self.test_dataset = FER2013Dataset(
-                root_dir=PATH_TO_FERP_DATASET,
+                root_dir=self.data_dir,
                 stage="test",
                 transform=self.val_transform,
             )

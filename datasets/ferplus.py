@@ -13,8 +13,8 @@ class FER2013Dataset(Dataset):
         """
         Args:
             csv_file (string): Path to the csv file with annotations.
-            root_dir (string): Directory with all the images.
-            transform (callable, optional): Optional transform to be applied on a sample.
+            root_dir (string): Directory of the dataset.
+            transform (callable, optional): Transformation to be applied on a sample.
         """
         assert stage in [
             "train",
@@ -44,7 +44,6 @@ class FER2013Dataset(Dataset):
 
     def get_weights(self):
         class_counts = self.frame["hard_label"].value_counts()
-        # class_counts = class_counts[:-1]
         total_samples = len(self.frame["hard_label"])
         num_classes = len(class_counts)
 
@@ -75,10 +74,8 @@ class FER2013Dataset(Dataset):
         return image, hard_label
 
 
-# Example usage
 if __name__ == "__main__":
-    # Assuming you have PIL Images, if you have RGB images
-    # you might need to adjust the transforms
+
     transform = transforms.Compose(
         [
             transforms.Resize((224, 224)),  # Resize to the input size of your model
@@ -100,4 +97,5 @@ if __name__ == "__main__":
         transform=None,
     ).get_weights()
 
+    # prints the weighted weights for CE Loss
     print(ce_weights)

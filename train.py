@@ -11,6 +11,8 @@ from config import (
     EPOCHS,
     NUM_WORKERS,
     LOSS_FUNCTION,
+    BATCH_SIZE,
+    PATH_TO_FERP_DATASET,
 )
 from data_module import FER_DataModule
 from models.resnet50 import ResNet50
@@ -20,6 +22,7 @@ from plot import PlotValidationImagesCallback
 
 def main():
 
+    # Lightning Model Module
     model = FERModel(
         model=ResNet50(num_classes=8),
         learning_rate=LEARNING_RATE,
@@ -27,29 +30,34 @@ def main():
         optimizer=OPTIMIZER,
     )
 
-    # Initialize the data module
+    # Lightning Data Module
     data_module = FER_DataModule(
-        data_dir="/Users/alessandro/datasets/fer2013",
-        batch_size=32,
+        data_dir=PATH_TO_FERP_DATASET,
+        batch_size=BATCH_SIZE,
         num_workers=NUM_WORKERS,
         train_transform=TRAIN_TRANSFORM,
         val_transform=TRAIN_TRANSFORM,
     )
 
+    # Callback to print 4 images after each epoch to understand visually inspect training
     plot_samples_callback = PlotValidationImagesCallback(
         path="plot_val",
         dataset_path="/Users/alessandro/datasets/fer2013",
         val_transform=VAL_TRANSFORM,
     )
 
+    # Callback to store checkpoints after each epoch
     checkpoint_callback = ModelCheckpoint(
-        dirpath="checkpoints",  # Specify your checkpoint directory
-        filename="{epoch}-{step}",  # Include epoch and global step in the filename
-        save_top_k=-1,  # Save all checkpoints
-        every_n_epochs=1,  # Save checkpoints at every epoch
+        # checkpoint directory
+        dirpath="checkpoints",
+        filename="{epoch}-{step}",
+        # Save all checkpoints
+        save_top_k=-1,
+        # Save checkpoints at every epoch
+        every_n_epochs=1,
     )
 
-    # Initialize a trainer
+    # Initialize a trainer, accellerator to "auto" means it use all the available devices.
     trainer = pl.Trainer(
         accelerator="auto",
         max_epochs=EPOCHS,
@@ -59,6 +67,8 @@ def main():
 
     # Train the model
     trainer.fit(model, data_module)
+
+    # Test the model
     trainer.test(model, data_module)
 
 

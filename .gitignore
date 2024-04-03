@@ -164,4 +164,4 @@ cython_debug/
 
 attempts/**
 checkpoints/**
-plot_val/**
+**/plot_val/**

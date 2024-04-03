@@ -8,8 +8,9 @@ from sklearn.metrics import (
 )
 
 from torch.optim import Adam
-from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
+from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts, SequentialLR, LambdaLR
 
+from config import WARMUP_STEPS
 from plot import plotConfusionMatrix
 
 
@@ -26,6 +27,12 @@ class FERModel(pl.LightningModule):
         self.learning_rate = learning_rate
         self.loss_fn = loss_fn
         self.optimizer = optimizer
+
+        # Initialise attributes
+        self.train_loss_accum = 0.0
+        self.train_accuracy_accum = 0.0
+        self.train_steps = 0
+        self.test_step_outputs = []
 
     def forward(self, x):
         return self.model(x)
@@ -90,60 +97,72 @@ class FERModel(pl.LightningModule):
         return loss
 
     def test_step(self, batch, batch_idx):
+
         images, targets = batch
         outputs = self(images)
         loss = self.loss_fn(outputs, targets)
 
-        # For accuracy, ensure targets are in the correct form if necessary
         _, preds = torch.max(outputs, dim=1)
         targets_argmax = targets.argmax(dim=1) if targets.dim() > 1 else targets
-        acc = accuracy_score(targets_argmax.cpu(), preds.cpu())
 
-        # Log the loss multiplied by the batch size
-        self.log(
-            "test_running_loss",
-            loss.item() * len(targets),
-            on_epoch=True,
-            prog_bar=True,
-        )
-
-        # Log accuracy
-        self.log("test_acc", acc, on_epoch=True, prog_bar=True)
-
-        # Precision, recall, F1, as before
-        precision, recall, f1, _ = precision_recall_fscore_support(
-            targets_argmax.cpu(), preds.cpu(), average="weighted"
-        )
-        self.log("test_precision", precision, on_epoch=True, prog_bar=True)
-        self.log("test_recall", recall, on_epoch=True, prog_bar=True)
-        self.log("test_f1", f1, on_epoch=True, prog_bar=True)
-
-        # For confusion matrix calculation later
         self.test_step_outputs.append({"preds": preds, "targets": targets_argmax})
+
+        return loss
 
     def on_test_epoch_end(self):
         # Aggregate predictions and targets from all test batches
         all_preds = torch.cat([x["preds"] for x in self.test_step_outputs], dim=0)
         all_targets = torch.cat([x["targets"] for x in self.test_step_outputs], dim=0)
 
-        # Calculate and log confusion matrix
-        conf_matrix = confusion_matrix(all_targets.cpu(), all_preds.cpu())
-        self.logger.experiment.add_figure(
-            "Confusion Matrix", plotConfusionMatrix(conf_matrix), self.current_epoch
+        # Calculate aggregated metrics
+        acc = accuracy_score(all_targets.cpu(), all_preds.cpu())
+        precision, recall, f1, _ = precision_recall_fscore_support(
+            all_targets.cpu(), all_preds.cpu(), average="weighted"
         )
 
+        # Log aggregated metrics
+        self.log("test_acc", acc, on_epoch=True, prog_bar=True)
+        self.log("test_precision", precision, on_epoch=True, prog_bar=True)
+        self.log("test_recall", recall, on_epoch=True, prog_bar=True)
+        self.log("test_f1", f1, on_epoch=True, prog_bar=True)
+
+        # Compute and plot confusion matrix
+        conf_matrix = confusion_matrix(all_targets.cpu(), all_preds.cpu())
+        plotConfusionMatrix(conf_matrix)
+
+        # Reset test_step_outputs for the next epoch
+        self.test_step_outputs = []
+
     def configure_optimizers(self):
+        """
+        Uses cosine scheduler with annealings and also some warmup steps.
+
+        """
         optimizer = self.optimizer(
             filter(lambda p: p.requires_grad, self.model.parameters()),
             lr=self.learning_rate,
         )
-        # T_0 is the number of iterations for the first restart, T_mult is the multiplier for each subsequent cycle (optional)
-        scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=10, T_mult=1)
+
+        warmup_steps = WARMUP_STEPS
+        scheduler_cosine = CosineAnnealingWarmRestarts(optimizer, T_0=10, T_mult=1)
+
+        # Lambda function to increase LR from 0 to initial LR over warmup_steps
+        scheduler_warmup = LambdaLR(
+            optimizer, lr_lambda=lambda step: min(1.0, step / warmup_steps)
+        )
+
+        # Combine warm-up and cosine annealing schedules
+        scheduler = SequentialLR(
+            optimizer,
+            schedulers=[scheduler_warmup, scheduler_cosine],
+            milestones=[warmup_steps],
+        )
+
         return {
             "optimizer": optimizer,
             "lr_scheduler": {
                 "scheduler": scheduler,
-                "interval": "epoch",  # or "step" for step-wise updates
+                "interval": "step",
                 "frequency": 1,
             },
         }

@@ -6,8 +6,6 @@ import torchvision.models as models
 from torchvision.models.vgg import VGG13_Weights
 
 
-from .utils import count_parameters, logger
-
 ssl._create_default_https_context = ssl._create_stdlib_context
 
 
@@ -34,7 +32,6 @@ class VGG13(nn.Module):
         for param in model.features.parameters():
             param.requires_grad = False
 
-        logger.info(f"Model has {count_parameters(model)} parameters.")
         self.model = model
 
     def forward(self, x):

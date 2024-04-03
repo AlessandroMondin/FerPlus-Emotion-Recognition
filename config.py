@@ -3,15 +3,26 @@ from torchvision import transforms
 
 OPTIMIZER = torch.optim.Adam
 LEARNING_RATE = 1e-4
+BATCH_SIZE = 32
+WARMUP_STEPS = 20
 EPOCHS = 40
 NUM_WORKERS = 4
 
 TRAIN_TRANSFORM = transforms.Compose(
     [
-        transforms.RandomAffine(degrees=10),
-        transforms.Resize(224),
+        # Resizes the image slightly larger than the final size
+        transforms.Resize((256, 256)),
+        # Randomly crops the image
+        transforms.RandomResizedCrop(224),
+        # Randomly flips the image horizontally
+        transforms.RandomHorizontalFlip(),
+        # Randomly rotates the image to a max of 10 degrees
+        transforms.RandomRotation(10),
+        # Random perspective transformation
+        transforms.RandomPerspective(distortion_scale=0.2, p=0.5),
         transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        # Normalizes with ImageNet's values
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ]
 )
 
